@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Wordle</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        h1 {
+            color: #3a3a3c;
+        }
+        #grille {
+            display: grid;
+            grid-template-columns: repeat(5, 60px);
+            gap: 8px;
+            margin: 20px 0;
+        }
+        .case {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #d3d6da;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 32px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .correct { background-color: #6aaa64; color: white; }
+        .present { background-color: #c9b458; color: white; }
+        .absent { background-color: #787c7e; color: white; }
+        #saisie {
+            margin: 20px 0;
+        }
+        input {
+            width: 250px;
+            padding: 10px;
+            font-size: 18px;
+            text-transform: uppercase;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #6aaa64;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #5d9957;
+        }
+        #message {
+            min-height: 30px;
+            margin-top: 15px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        .erreur { color: #cc0000; }
+        .victoire { color: #6aaa64; }
+        .defaite { color: #c9b458; }
+    </style>
+</head>
+<body>
+    <h1>WORDLE FRANÇAIS</h1>
+    <div id="grille">
+    </div>
+    
+    <div id="saisie">
+        <input type="text" id="input-mot" maxlength="5" placeholder="Entrez un mot">
+        <button id="btn-verifier">Vérifier</button>
+    </div>
+    
+    <div id="message"></div>
+    <input type="hidden" id="session-id" value="{{ session_id }}">
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const grille = document.getElementById('grille');
+            const inputMot = document.getElementById('input-mot');
+            const btnVerifier = document.getElementById('btn-verifier');
+            const messageDiv = document.getElementById('message');
+            const sessionId = document.getElementById('session-id').value;
+            
+            let essaiActuel = 0;
+            const cases = [];
+            
+            for (let ligne = 0; ligne < 6; ligne++) {
+                for (let colonne = 0; colonne < 5; colonne++) {
+                    const caseElement = document.createElement('div');
+                    caseElement.classList.add('case');
+                    caseElement.id = `case-${ligne}-${colonne}`;
+                    grille.appendChild(caseElement);
+                    
+                    if (ligne === 0) {
+                        cases.push(caseElement);
+                    }
+                }
+            }
+            
+            inputMot.focus();
+
+            inputMot.addEventListener('input', () => {
+                inputMot.value = inputMot.value.replace(/[^a-zA-Zàâäéèêëîïôöùûüÿç]/gi, '');
+            });
+            
+            // Vérifier le mot
+            btnVerifier.addEventListener('click', verifierMot);
+            inputMot.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') verifierMot();
+            });
+            
+            function verifierMot() {
+                const mot = inputMot.value.trim().toLowerCase();
+                if (mot.length !== 5) {
+                    afficherMessage("Le mot doit avoir 5 lettres", "erreur");
+                    return;
+                }
+                
+                // Afficher le mot dans la grille
+                for (let i = 0; i < 5; i++) {
+                    const caseElement = document.getElementById(`case-${essaiActuel}-${i}`);
+                    caseElement.textContent = mot[i].toUpperCase();
+                }
+                
+                // Envoyer au serveur pour vérification
+                fetch('/verifier', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        mot: mot,
+                        session_id: sessionId,
+                        essai: essaiActuel
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.erreur) {
+                        afficherMessage(data.erreur, "erreur");
+                        effacerLigne();
+                        return;
+                    }
+                    
+                    // Mettre à jour les couleurs
+                    for (let i = 0; i < 5; i++) {
+                        const caseElement = document.getElementById(`case-${essaiActuel}-${i}`);
+                        caseElement.classList.add(data.resultat[i]);
+                    }
+                    
+                    // Vérifier l'état du jeu
+                    if (data.victoire) {
+                        afficherMessage(`Bravo ! Vous avez trouvé en ${essaiActuel + 1} essai(s)`, "victoire");
+                        desactiverJeu();
+                    } else if (data.fin_jeu) {
+                        afficherMessage(`Perdu ! Le mot était : ${data.secret.toUpperCase()}`, "defaite");
+                        desactiverJeu();
+                    } else {
+                        essaiActuel++;
+                        inputMot.value = '';
+                        inputMot.focus();
+                    }
+                })
+                .catch(error => {
+                    afficherMessage("Erreur de communication avec le serveur", "erreur");
+                    console.error(error);
+                });
+            }
+            
+            function afficherMessage(msg, classe) {
+                messageDiv.textContent = msg;
+                messageDiv.className = classe;
+            }
+            
+            function effacerLigne() {
+                for (let i = 0; i < 5; i++) {
+                    const caseElement = document.getElementById(`case-${essaiActuel}-${i}`);
+                    caseElement.textContent = '';
+                }
+            }
+            
+            function desactiverJeu() {
+                inputMot.disabled = true;
+                btnVerifier.disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>
